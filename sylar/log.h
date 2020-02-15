@@ -4,7 +4,11 @@
 #include <stdint.h>
 #include<memory>
 #include <list>
+#include<stringstream>
 #include<iostream>
+#include <vector>
+using namespace std;
+
 namespace sylar{
 
 // 日志事件
@@ -41,9 +45,23 @@ class LogFormatter{
 public:
 	typedef std::shared_ptr<LogFormatter> ptr;
 	std::string format(LogEvent::ptr event);
-private:
+	LogFormatter(const std::string &pattern);
 
+private:
+	
+	class FormatItem{
+	public:
+		typedef std::shared_ptr<FormatItem> ptr;
+		virtual ~FormatItem(){}
+		virtual std::string format(std::ostream &os,LogEvent::ptr event) = 0
+	};
+
+	void init();
+private:
+	std::string m_pattern;
+	std::vector<FormatItem::ptr> m_items;
 };
+
 // 日志输出地
 class LogAppender{
 public:
@@ -105,6 +123,7 @@ public:
 	typedef std::shared_ptr<StdoutLogAppender> ptr;
 	virtual void log(LogLevel::Level level, LogEvent::ptr event) override;
 };
+
 // 定义输出到文件的Appender
 class FileLogAppender : public LogAppender{
 public:

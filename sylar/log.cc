@@ -1,20 +1,33 @@
 #include"log.h"
 namespace sylar{
 
+// -----LogFormater模块----
+std::string LogFormatter::format(LogEvent::ptr event){ 
+    stringstream ss;
+    for(auto &i : m_items){
+        i->format(ss, event);
+    }
+    return ss.str();
+}
+LogFormatter::LogFormatter(const std::string &pattern)
+    : m_pattern(pattern){
+
+}
+void LogFormatter::init(){
+    
+}
+
 // -----LogAppender模块----
 FileLogAppender::FileLogAppender(const std::string & filename) : m_filename(filename){
 
 }
 void FileLogAppender::log(LogLevel::Level level, LogEvent::ptr event){
-    if(level >= m_level){
+    if(level > m_level){
         m_filestream<<m_formatter->format(event);
     }
 }
-
 bool FileLogAppender::reopen(){
     if(m_filestream){
-        // m_filestream
-        m_filename
         m_filestream.close();
     }
     m_filestream.open(m_filename);
