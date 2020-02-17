@@ -1,5 +1,25 @@
-#include"log.h"
+#include "log.h"
 namespace sylar{
+// ----LogLevel模块的实现----
+const char* LogLevel::ToString(LogLevel::Level level){
+    switch(level){
+        // 定义了一个宏 返回 "DEBUG" "INFO" "WARN" "ERROR" "FATAL"等字符串
+        #define XX(name)\
+            case LogLevel::name:\
+            return #name; \
+            break;
+            XX(DEBUG);
+            XX(INFO);
+            XX(WARN);
+            XX(ERROR);
+            XX(FATAL);
+        #undef XX
+        default:
+            return "UNKNOW";
+            break;
+    }
+    return "UNKNOW";
+}
 
 // ----LogFromat模块的实现----
 LogFormatter::LogFormatter(const string & pattern)
@@ -7,11 +27,15 @@ LogFormatter::LogFormatter(const string & pattern)
 
  }
     // 根据pattern格式解析出日志 
-string LogFormatter::format(LogEvent::ptr event){
+    //  string format(shared_ptr<Logger> pLogger,LogLevel::Level level,LogEvent::ptr event)
+string LogFormatter::format(shared_ptr<Logger> pLogger,LogLevel::Level level,LogEvent::ptr event){
     stringstream ss;
     for(auto &i : m_items){
-        i->format(ss,event);
+        // TODO：
+        i->format(ss,pLogger,level, event);
+        // i->format(ss,pLogger,level,event);
     }
+    return "";
 }
     // log4j日志格式输出一览
 /*
@@ -28,17 +52,131 @@ string LogFormatter::format(LogEvent::ptr event){
         %5p [%t] (%F:%L) - %m%n 就表示
         宽度是5的优先等级 线程名称 (文件名:行号) - 信息 回车换行
 */
-// %
+// %%xxx %xxxx %xxx{xxx}
 void LogFormatter::init(){
+    // 对象解析
+    vector<tuple<string,string, int>> vec;
+    size_t last_pos = 0; //unused
+    string nstr;
+    for(size_t i= 0; i < m_pattern.size(); ++i){
+        if(m_pattern[i] != '%'){
+            nstr.append(1,m_pattern[i]);
+            continue;
+        }
 
+        if((i+1) < m_pattern.size()){
+            if(m_pattern[i+1] == '%')
+            {
+                nstr.substr(1,'%');
+                continue;
+            }
+        }
+
+        size_t n = i + 1;
+        int fmt_status = 0;
+        size_t fmt_begin = 0;
+
+        string str;
+        string fmt;
+        while(n < m_pattern.size()){
+            if(isspace(m_pattern[n])){
+                break;
+            }
+            if(fmt_status == 0){
+                if(m_pattern[n] == '{'){
+                    str = m_pattern.substr(i+1, n - i - 1);
+                    fmt_status = 1;// 解析格式
+                    ++n;
+                    continue;
+                }
+            }
+           if(fmt_status == 1){
+               if(m_pattern[n] == '}'){
+                   fmt = m_pattern.substr(fmt_begin +1, n - fmt_begin - 1);
+                   fmt_status = 2;
+                   break;
+               }
+           }
+
+        }
+        if(fmt_status == 0){
+            if(!nstr.empty()){
+                vec.push_back(make_tuple(nstr,"",0));
+            }
+            str = m_pattern.substr(i+1, n - i - 1);
+            vec.push_back(make_tuple(str, fmt, 1));
+            i = n;
+        }
+        else if(fmt_status == 1)
+        {
+            cout<<"pattern parse error"<<m_pattern<<" - "<<m_pattern.substr(i)<<endl;
+            vec.push_back(make_tuple("<<pattern_error>>", fmt,1));
+        }
+        else if(fmt_status == 2){
+             if(!nstr.empty()){
+                vec.push_back(make_tuple(nstr,"",0));
+            }
+            vec.push_back(make_tuple(str, fmt, 1));
+            i = n;
+        }
+    }
+    if(!nstr.empty()){
+        vec.push_back(make_tuple(nstr, "", 0));
+    }
+    static map<string,function<FormatItem::ptr(const string &str)>> s_format_items={
+        #define XX(str, C)\
+            {#str, [](const string & fmt){return FormatItem::ptr(new C(fmt));}}
+
+            XX(m,MessageFormatItem),
+            XX(p, LevelFormatItem),
+            XX(r,ElapseFormatItem),
+            XX(c,LoggerNameFormatItem),
+            XX(t,ThreadIDFormatItem),
+            XX(n,NewLineFormatItem),
+            XX(d,DateTimeFormatItem),
+            XX(f,FileNameFormatItem),
+            XX(l,LineFormatItem),
+        #undef XX
+
+    };
+    // %m--输出代码中指定的信息，如log(message)中的message
+    // %p--输出优先级，即DEBUG，INFO，WARN，ERROR，FATAL。如果是调用debug()输出的，则为DEBUG，依此类推
+    // %r--输出自应用启动到输出该日志信息所耗费的毫秒数
+    // %t--输出产生该日志事件的线程名
+    // %c--日志名称
+    // %n--回车
+    // %d--日志格式
+    // %f--文件名
+    // %l--行号
+
+    for(auto &i :vec){
+        if(get<2>(i) ==0){
+            m_items.push_back(FormatItem::ptr(new StringFormatItem(get<0>(i))));
+        }
+        else
+        {
+            auto ite = s_format_items.find(get<0>(i));
+            if(ite == s_format_items.end()){
+                m_items.push_back(FormatItem::ptr(new StringFormatItem("<<error_format %"+get<0>(i)+">>")));
+            }
+            else
+            {
+                m_items.push_back(ite->second(get<1>(i)));
+            }
+        }
+        cout<<get<0>(i)<<" - "<<get<1>(i)<<" - "<<get<2>(i)<<endl;
+    }
 }
+
+ 
 // ----LogAppender模块的实现----
-void StdoutLogAppender::log(LogLevel::Level level, LogEvent::ptr event){
+void StdoutLogAppender::log(shared_ptr<Logger> pLogger,LogLevel::Level level, LogEvent::ptr event){
     // TODO：format函数没写
-    // if(level >= m_level){
-    //     cout<<m_formatter->format(event);
-    // }
+    if(level >= m_level){
+        // cout<<m_formatter->format(event);
+    }
 }
+
     // 重新打开文件
 bool FileLogAppender::reopen(){
     if(m_filestream){
@@ -52,11 +190,11 @@ FileLogAppender::FileLogAppender(const string &filename)
 
 }
 
-void FileLogAppender::log(LogLevel::Level level, LogEvent::ptr event){
+void FileLogAppender::log(shared_ptr<Logger> pLogger,LogLevel::Level level, LogEvent::ptr event){
     // TODO：format函数没写
-    // if(level >= m_level){
+    if(level >= m_level){
     //     m_filestream<<m_formatter->format(event);
-    // }
+    }
 }
 
 // ----Logger模块的实现----
@@ -67,12 +205,15 @@ Logger::Logger(const string& name)
 void Logger::log(LogLevel::Level level, LogEvent::ptr event){
     if(level >= m_level){
         for(auto &i : m_appenders){
-            // TODO：添加内容
-            // 死循环
-            // i->log(level, event);
+        //     // TODO：添加内容
+        //     // 死循环
+        //     // i->log(level, event);
+        //     i->log(this,level, event);
         }
     }
+    // no suitable constructor 
 }
+
 
 void  Logger::debug(LogEvent::ptr event){
     log(LogLevel::DEBUG, event);
@@ -105,13 +246,4 @@ void  Logger::delAppender(LogAppender::ptr appender){
     }
 }
 
-}
-
-int main(){
-    vector<int> vec{1,23,4};
-    std::shared_ptr<int> ptr = make_shared<int>(34);
-    // *ptr = 1;
-    cout<<"ptr = "<<*ptr<<endl;
-    cout<<"aa:"<<vec[1]<<endl;
-    return 0;
 }

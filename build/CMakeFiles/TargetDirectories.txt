@@ -1,0 +1,4 @@
+/root/cppServer1/build/CMakeFiles/edit_cache.dir
+/root/cppServer1/build/CMakeFiles/rebuild_cache.dir
+/root/cppServer1/build/CMakeFiles/testLog.dir
+/root/cppServer1/build/CMakeFiles/sylar.dir
